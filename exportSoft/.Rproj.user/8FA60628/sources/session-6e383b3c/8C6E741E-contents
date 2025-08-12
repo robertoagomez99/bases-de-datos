@@ -1,0 +1,98 @@
+# generar_csv.R
+# Script para normalizar datos del Excel y generar CSVs
+rm(list=ls())
+# Instalar paquetes si no los tienes (ejecutar solo la primera vez)
+# install.packages(c("readxl", "dplyr"))
+# Cargar librerías
+library(readxl)
+library(dplyr)
+
+# Leer el archivo Excel
+cat("Leyendo archivo Excel...\n")
+excel_data <- read_excel("prestamos_biblioteca_original.xlsx")
+
+# Limpiar nombres de columnas
+names(excel_data) <- gsub("[^a-zA-Z0-9_]", "_", names(excel_data))
+names(excel_data) <- gsub("_+", "_", names(excel_data))
+
+# Verificar la estructura de los datos
+cat("Columnas encontradas:\n")
+print(names(excel_data))
+
+# 1. Crear usuarios.csv (usuarios únicos)
+cat("Generando usuarios.csv...\n")
+usuarios <- excel_data %>%
+  select(nombre_del_usuario, identificacion_del_usuario, correo, telefono) %>%
+  distinct() %>%
+  rename(
+    nombre = nombre_del_usuario,
+    identificacion = identificacion_del_usuario
+  )
+
+write.csv(usuarios, "backend/data/usuarios.csv", row.names = FALSE, quote = FALSE, fileEncoding = "UTF-8")
+cat("✅ usuarios.csv generado con", nrow(usuarios), "registros\n")
+
+# 2. Crear autores.csv (autores únicos)
+cat("Generando autores.csv...\n")
+autores <- excel_data %>%
+  select(autor) %>%
+  distinct() %>%
+  rename(nombre = autor)
+
+write.csv(autores, "backend/data/autores.csv", row.names = FALSE, quote = FALSE, fileEncoding = "UTF-8")
+cat("✅ autores.csv generado con", nrow(autores), "registros\n")
+
+# 3. Crear libros.csv (libros únicos con id_autor)
+cat("Generando libros.csv...\n")
+libros <- excel_data %>%
+  select(titulo, isbn, a_o_de_publicacion, autor) %>%
+  distinct() %>%
+  rename(
+    anio_publicacion = a_o_de_publicacion
+  )
+
+# Agregar id_autor basado en el autor
+autores_con_id <- autores %>%
+  mutate(id_autor = row_number())
+
+libros_con_id <- libros %>%
+  left_join(autores_con_id, by = c("autor" = "nombre")) %>%
+  select(isbn, titulo, anio_publicacion, id_autor) %>%
+  distinct()
+
+write.csv(libros_con_id, "backend/data/libros.csv", row.names = FALSE, quote = FALSE, fileEncoding = "UTF-8")
+cat("✅ libros.csv generado con", nrow(libros_con_id), "registros\n")
+
+# 4. Crear prestamos.csv
+cat("Generando prestamos.csv...\n")
+
+# Crear un lookup para id_usuario basado en nombre
+usuario_lookup <- usuarios %>%
+  mutate(id_usuario = row_number()) %>%
+  select(id_usuario, nombre)
+
+# Crear prestamos con IDs
+prestamos <- excel_data %>%
+  select(nombre_del_usuario, isbn, fecha_prestamo, fecha_devolucion, estado) %>%
+  rename(
+    nombre = nombre_del_usuario,
+    fecha_prestamos = fecha_prestamo
+  ) %>%
+  left_join(usuario_lookup, by = "nombre") %>%
+  select(id_usuario, isbn, fecha_prestamos, fecha_devolucion, estado) %>%
+  mutate(
+    fecha_prestamos = as.character(fecha_prestamos),
+    fecha_devolucion = as.character(fecha_devolucion)
+  )
+
+write.csv(prestamos, "backend/data/prestamos.csv", row.names = FALSE, quote = FALSE, fileEncoding = "UTF-8")
+cat("✅ prestamos.csv generado con", nrow(prestamos), "registros\n")
+
+# Mostrar resumen
+cat("\n🎉 Proceso completado exitosamente!\n")
+cat("📊 Resumen de archivos generados:\n")
+cat("   - usuarios.csv:", nrow(usuarios), "registros\n")
+cat("   - autores.csv:", nrow(autores), "registros\n")
+cat("   - libros.csv:", nrow(libros_con_id), "registros\n")
+cat("   - prestamos.csv:", nrow(prestamos), "registros\n")
+cat("📁 Archivos guardados en: backend/data/\n")
